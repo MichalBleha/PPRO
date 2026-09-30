@@ -79,19 +79,28 @@ V souladu s metodikou předmětu jsou zde evidována jednoznačná rozhodnutí k
 - **Rozhodnutí:** Systém implementuje funkci **„Zaznamenat nepřítomnost lékaře“** (vyloučení z ordinace na zadaný interval).
 - **Zdůvodnění:** Systém automaticky uzamkne dotčené období pro nové rezervace a existující rezervace přepne do stavu `VyzadujePreobjednani`. Recepční se vygeneruje přehledná fronta pacientů k obvolání s kontaktními údaji a možností přeobjednat pacienta k jinému dostupnému lékaři nebo na náhradní termín na jedno kliknutí.
 
+### 6. Volba technologického stacku
+- **Rozhodnutí:** Projekt je vyvíjen v technologii **Python 3.12 / FastAPI / SQLAlchemy 2.0 / Alembic / PostgreSQL**.
+- **Zdůvodnění:** 
+  - **FastAPI:** Poskytuje čisté oddělení prezentační vrstvy pomocí Pydantic DTO schémat a dependency injection, automaticky generuje interaktivní OpenAPI/Swagger dokumentaci na `/docs`, což umožňuje okamžité a pohodlné testování všech endpointů.
+  - **SQLAlchemy 2.0:** Moderní ORM plně podporující datové mapování a relační vazby (včetně M:N asociací).
+  - **Alembic:** Zajišťuje plnohodnotné verzování a automatickou aplikaci databázových migrací v Dockeru.
+  - **PostgreSQL:** Robustní relační databáze běžící v Docker kontejneru.
+  - **Pytest:** Rychlé a přehledné testování invariantů a byznys pravidel bez externí režie.
+
 ---
 
 ## 🎯 Povinné minimum projektu
 
 | Požadavek předmětu | Způsob splnění v projektu |
 | :--- | :--- |
-| **3 vrstvy se závislostmi jedním směrem** | Web/API (Prezentační) ➔ Application/Domain (Byznys) ➔ Infrastructure/Persistence (Datová) |
-| **Relační databáze v Dockeru** | PostgreSQL běžící v dedikovaném kontejneru |
-| **Verzované databázové migrace** | Automatické migrace aplikované při startu aplikace |
+| **3 vrstvy se závislostmi jedním směrem** | FastAPI Routers/DTOs (Prezentační) ➔ Services/Business Logic (Aplikační/Doménová) ➔ SQLAlchemy/PostgreSQL (Datová) |
+| **Relační databáze v Dockeru** | PostgreSQL 16 běžící v dedikovaném kontejneru |
+| **Verzované databázové migrace** | Alembic migrační skripty verzované v Gitu a automaticky spouštěné při startu |
 | **Nejméně 5 entit** | Pacient, Lekar, OrdinacniHodina, Rezervace, Navsteva, Vykon, NavstevaVykon, VylukaLekare (8 entit) |
-| **Alespoň jedna vazba M:N** | Vazba mezi `Navsteva` a `Vykon` přes asociační entitu `NavstevaVykon` (s atributem `Pocet` a `Body`) |
-| **Automatizované testy** | Jednotkové a integrační testy pro klíčová pravidla (kolize, ordinační hodiny, kalkulace bodů) |
-| **Spuštění příkazem `docker compose up`** | Kompletní orchestrace aplikace a databáze v `docker-compose.yml` |
+| **Alespoň jedna vazba M:N** | Vazba mezi `Navsteva` a `Vykon` přes asociační entitu `NavstevaVykon` (s atributy `pocet` a `priznane_body`) |
+| **Automatizované testy** | Pytest testy klíčových byznys pravidel (nekoliznost, ordinační hodiny, validace návštěv) |
+| **Spuštění příkazem `docker compose up`** | Kompletní orchestrace backendu a databáze v `docker-compose.yml` |
 | **Technická dokumentace** | Udržována v tomto `README.md` jako jediném zdroji pravdy |
 | **Syntetická data** | Seeder generuje realistická, avšak striktně fiktivní testovací data |
 
@@ -104,24 +113,26 @@ Aplikace striktně dodržuje jednosměrný tok závislostí:
 ```text
 ┌────────────────────────────────────────────────────────┐
 │             Prezentační vrstva (Presentation)          │
-│   - REST API kontrolery / Razor Pages / Web UI        │
-│   - Validace vstupních DTO, serializace                │
+│   - FastAPI Routers (`/api/v1/reservations`, ...)      │
+│   - Pydantic v2 schémata (Request / Response DTOs)     │
+│   - OpenAPI / Swagger UI dokumentace (`/docs`)         │
 └───────────────────────────┬────────────────────────────┘
                             │ závisí na
                             ▼
 ┌────────────────────────────────────────────────────────┐
-│             Aplikační a doménová vrstva (Core)         │
-│   - Doménové entity a byznys invarianty               │
-│   - Služby: ReservationService, ScheduleService        │
-│   - Kontrola kolizí, výpočty bodů pojišťovny           │
-│   - Rozhraní repozitářů (IRepository)                  │
+│             Aplikační a doménová vrstva (Application)  │
+│   - Byznys invarianty a validace pravidel             │
+│   - Služby: ReservationService, ScheduleService,       │
+│             VisitService, ReportService                │
+│   - Kontrola nepřekrývání termínů a ordinačních hodin  │
 └───────────────────────────┬────────────────────────────┘
                             │ implementováno v
                             ▼
 ┌────────────────────────────────────────────────────────┐
 │             Infrastrukturní vrstva (Infrastructure)    │
-│   - Relační databáze (Entity Framework Core / SQL)     │
-│   - Konkrétní repozitáře, databázový kontext, migrace  │
+│   - SQLAlchemy 2.0 ORM modely a Database Session      │
+│   - Alembic verzované migrace schématu                 │
+│   - PostgreSQL 16 relační databáze                     │
 └────────────────────────────────────────────────────────┘
 ```
 
@@ -131,14 +142,14 @@ Aplikace striktně dodržuje jednosměrný tok závislostí:
 
 Aplikace pracuje s následujícími klíčovými entitami:
 
-1. **`Pacient`:** `Id`, `Jmeno`, `Prijmeni`, `RokNarozeni`, `Telefon`, `CisloPojistence` (UNIQUE), `KodPojistovny`, `Vytvoreno`
-2. **`Lekar`:** `Id`, `Titul`, `Jmeno`, `Prijmeni`, `Aktivni`
-3. **`OrdinacniHodina`:** `Id`, `LekarId`, `DenVTydnu`, `CasOd`, `CasDo`, `PracovisteAdresa`, `LzeObjednat`
-4. **`VylukaLekare`:** `Id`, `LekarId`, `DatumOd`, `DatumDo`, `Duvod`
-5. **`Rezervace`:** `Id`, `PacientId`, `LekarId`, `CasOd`, `CasDo`, `Stav` (`Planovana`, `Dokoncena`, `Zrusena`, `VyzadujePreobjednani`), `Poznamka`, `DatumZruseni`
-6. **`Navsteva`:** `Id`, `RezervaceId` (volitelné pro neplánované), `PacientId`, `LekarId`, `ZacatekNavstevy`, `KonecNavstevy`, `ZpravaLekare`
-7. **`Vykon`:** `Id`, `KodVykonu` (UNIQUE), `Nazev`, `Body`, `PlatnostOd`
-8. **`NavstevaVykon` (vazba M:N):** `Id`, `NavstevaId`, `VykonId`, `Pocet`, `PriznaneBody`
+1. **`Pacient`:** `id`, `jmeno`, `prijmeni`, `rok_narozeni`, `telefon`, `cislo_pojistence` (UNIQUE), `kod_pojistovny`, `vytvoreno`
+2. **`Lekar`:** `id`, `titul`, `jmeno`, `prijmeni`, `aktivni`
+3. **`OrdinacniHodina`:** `id`, `lekar_id`, `den_v_tydnu`, `cas_od`, `cas_do`, `pracoviste_adresa`, `lze_objednat`
+4. **`VylukaLekare`:** `id`, `lekar_id`, `datum_od`, `datum_do`, `duvod`
+5. **`Rezervace`:** `id`, `pacient_id`, `lekar_id`, `cas_od`, `cas_do`, `stav` (`planovana`, `dokoncena`, `zrusena`, `vyzaduje_preobjednani`), `poznamka`, `datum_zruseni`
+6. **`Navsteva`:** `id`, `rezervace_id` (volitelné pro neplánované), `pacient_id`, `lekar_id`, `zacatek_navstevy`, `konec_navstevy`, `zprava_lekare`
+7. **`Vykon`:** `id`, `kod_vykonu` (UNIQUE), `nazev`, `body`, `platnost_od`
+8. **`NavstevaVykon` (vazba M:N):** `id`, `navsteva_id`, `vykon_id`, `pocet`, `priznane_body`
 
 ---
 
@@ -151,8 +162,11 @@ Celé prostředí lze zprovoznit pomocí Dockeru:
 git clone https://github.com/MichalBleha/PPRO.git
 cd PPRO
 
-# 2. Spuštění kontejnerů (databáze + aplikace)
+# 2. Spuštění kontejnerů (databáze PostgreSQL + backend FastAPI s migracemi)
 docker compose up -d --build
+
+# 3. Interaktivní Swagger dokumentace
+# Dostupná v prohlížeči na adrese: http://localhost:8000/docs
 ```
 
 ---
@@ -161,13 +175,13 @@ docker compose up -d --build
 
 Spuštění sady automatizovaných testů ověřujících byznys pravidla:
 ```bash
-# Spuštění testů
-dotnet test
+# Spuštění testů v kontejneru nebo lokálně
+pytest
 ```
 
 Testované scénáře zahrnují zejména:
 - Pokus o překryv rezervací u stejného lékaře (očekáváno zamítnutí).
-- Rezervace mimo ordinační dobu (očekáváno zamítnutí).
+- Rezervace mimo ordinační dobu lékaře (očekáváno zamítnutí).
 - Přiřazení výkonu k neproběhlé návštěvě (očekáváno zamítnutí).
 - Správný výpočet součtu bodů pro měsíční výkaz pojišťovny.
 
@@ -180,3 +194,6 @@ Testované scénáře zahrnují zejména:
   - Vytvoření [AGENTS.md](file:///c:/Users/bleha/Desktop/PPRO/AGENTS.md) s pravidly vývoje, git politikou a ochranou proti neautorizovanému pushování.
   - Zpracování kompletní technické dokumentace a architektonických rozhodnutí do [README.md](file:///c:/Users/bleha/Desktop/PPRO/README.md) jako jediného zdroje pravdy.
   - Nastavení git pre-commit hooku pro kontrolu aktuálnosti dokumentace.
+  - Úspěšný push inicializačního stavu do GitHub repozitáře.
+  - **Rozhodnutí o technologickém stacku:** Zvolen stack **Python 3.12 / FastAPI / SQLAlchemy 2.0 / Alembic / PostgreSQL (Docker)**.
+
