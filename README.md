@@ -80,13 +80,14 @@ V souladu s metodikou předmětu jsou zde evidována jednoznačná rozhodnutí k
 - **Zdůvodnění:** Systém automaticky uzamkne dotčené období pro nové rezervace a existující rezervace přepne do stavu `VyzadujePreobjednani`. Recepční se vygeneruje přehledná fronta pacientů k obvolání s kontaktními údaji a možností přeobjednat pacienta k jinému dostupnému lékaři nebo na náhradní termín na jedno kliknutí.
 
 ### 6. Volba technologického stacku
-- **Rozhodnutí:** Projekt je vyvíjen v technologii **Python 3.12 / FastAPI / SQLAlchemy 2.0 / Alembic / PostgreSQL**.
+- **Rozhodnutí:** Původní prototyp byl plně nahrazen podnikovým stackem **Java 21 / Spring Boot 3.3.x / React 18 / PostgreSQL 16 / Flyway**.
 - **Zdůvodnění:** 
-  - **FastAPI:** Poskytuje čisté oddělení prezentační vrstvy pomocí Pydantic DTO schémat a dependency injection, automaticky generuje interaktivní OpenAPI/Swagger dokumentaci na `/docs`, což umožňuje okamžité a pohodlné testování všech endpointů.
-  - **SQLAlchemy 2.0:** Moderní ORM plně podporující datové mapování a relační vazby (včetně M:N asociací).
-  - **Alembic:** Zajišťuje plnohodnotné verzování a automatickou aplikaci databázových migrací v Dockeru.
-  - **PostgreSQL:** Robustní relační databáze běžící v Docker kontejneru.
-  - **Pytest:** Rychlé a přehledné testování invariantů a byznys pravidel bez externí režie.
+  - **Spring Boot 3.3.x:** Poskytuje robustní třívrstvou architekturu s Inversion of Control (IoC) a Dependency Injection, deklarativní transakce (`@Transactional`), silnou typovou kontrolu a ekosystém Spring Data JPA.
+  - **React + Vite:** Moderní, rychlé SPA uživatelské rozhraní pro recepční s propracovaným CSS designovým systémem uzpůsobeným pro rychlou obsluhu telefonátů a správu 15minutové mřížky diáře.
+  - **Flyway:** Verzované a plně deterministické migrace relačního schématu (`V1__init_schema.sql`, `V2__seed_synthetic_data.sql`) spouštěné automaticky při startu kontejneru.
+  - **PostgreSQL 16:** Relační databáze běžící v Docker kontejneru s indexy a cizími klíči garantujícími referenční integritu.
+  - **Springdoc OpenAPI / Swagger UI:** Interaktivní dokumentace REST API dostupná na `/swagger-ui.html`.
+  - **JUnit 5 & Mockito:** Automatizované testy klíčových byznys pravidel a doménových invariantů.
 
 ---
 
@@ -94,46 +95,49 @@ V souladu s metodikou předmětu jsou zde evidována jednoznačná rozhodnutí k
 
 | Požadavek předmětu | Způsob splnění v projektu |
 | :--- | :--- |
-| **3 vrstvy se závislostmi jedním směrem** | FastAPI Routers/DTOs (Prezentační) ➔ Services/Business Logic (Aplikační/Doménová) ➔ SQLAlchemy/PostgreSQL (Datová) |
-| **Relační databáze v Dockeru** | PostgreSQL 16 běžící v dedikovaném kontejneru |
-| **Verzované databázové migrace** | Alembic migrační skripty verzované v Gitu a automaticky spouštěné při startu |
+| **3 vrstvy se závislostmi jedním směrem** | React / Spring REST Controllers (Prezentační) ➔ Spring Services / Business Logic (Aplikační) ➔ Spring Data JPA Repositories / PostgreSQL (Datová) |
+| **Relační databáze v Dockeru** | PostgreSQL 16 běžící v dedikovaném kontejneru `ordinace_db` |
+| **Verzované databázové migrace** | Flyway migrační skripty verzované v Gitu a aplikované automaticky při startu Spring Boot |
 | **Nejméně 5 entit** | Pacient, Lekar, OrdinacniHodina, Rezervace, Navsteva, Vykon, NavstevaVykon, VylukaLekare (8 entit) |
 | **Alespoň jedna vazba M:N** | Vazba mezi `Navsteva` a `Vykon` přes asociační entitu `NavstevaVykon` (s atributy `pocet` a `priznane_body`) |
-| **Automatizované testy** | Pytest testy klíčových byznys pravidel (nekoliznost, ordinační hodiny, validace návštěv) |
-| **Spuštění příkazem `docker compose up`** | Kompletní orchestrace backendu a databáze v `docker-compose.yml` |
-| **Technická dokumentace** | Udržována v tomto `README.md` jako jediném zdroji pravdy |
-| **Syntetická data** | Seeder generuje realistická, avšak striktně fiktivní testovací data |
+| **Automatizované testy** | JUnit 5 & Mockito testy klíčových byznys pravidel (nekoliznost, ordinační hodiny, storna, výpočet bodů) |
+| **Spuštění příkazem `docker compose up`** | Kompletní orchestrace frontend (Nginx), backend (Spring Boot) a db (PostgreSQL) v `docker-compose.yml` |
+| **Technická dokumentace** | Udržována v tomto `README.md` i `readme.txt` jako jediném zdroji pravdy |
+| **Syntetická data** | Flyway migrace V2 generuje realistická, avšak striktně fiktivní testovací data |
 
 ---
 
 ## 🏗️ Architektura a vrstvy
 
-Aplikace striktně dodržuje jednosměrný tok závislostí:
+Aplikace striktně dodržuje jednosměrný tok závislostí a principy IoC / Dependency Injection:
 
 ```text
-┌────────────────────────────────────────────────────────┐
-│             Prezentační vrstva (Presentation)          │
-│   - FastAPI Routers (`/api/v1/reservations`, ...)      │
-│   - Pydantic v2 schémata (Request / Response DTOs)     │
-│   - OpenAPI / Swagger UI dokumentace (`/docs`)         │
-└───────────────────────────┬────────────────────────────┘
-                            │ závisí na
-                            ▼
-┌────────────────────────────────────────────────────────┐
-│             Aplikační a doménová vrstva (Application)  │
-│   - Byznys invarianty a validace pravidel             │
-│   - Služby: ReservationService, ScheduleService,       │
-│             VisitService, ReportService                │
-│   - Kontrola nepřekrývání termínů a ordinačních hodin  │
-└───────────────────────────┬────────────────────────────┘
-                            │ implementováno v
-                            ▼
-┌────────────────────────────────────────────────────────┐
-│             Infrastrukturní vrstva (Infrastructure)    │
-│   - SQLAlchemy 2.0 ORM modely a Database Session      │
-│   - Alembic verzované migrace schématu                 │
-│   - PostgreSQL 16 relační databáze                     │
-└────────────────────────────────────────────────────────┘
+┌─────────────────────────────────────────────────────────────────┐
+│             Prezentační vrstva (Presentation)                   │
+│   - React 18 SPA (Nginx / Vite) – ergonomické UI pro recepční   │
+│   - Spring REST Controllers (`@RestController`, `/api/...`)     │
+│   - Java 21 Records DTOs + Jakarta Validation (`@Valid`)       │
+│   - OpenAPI 3.0 / Swagger UI dokumentace (`/swagger-ui.html`)   │
+└───────────────────────────────┬─────────────────────────────────┘
+                                │ závisí na
+                                ▼
+┌─────────────────────────────────────────────────────────────────┐
+│             Aplikační a byznys vrstva (Application / Services)  │
+│   - Služby s transakcemi (`@Service`, `@Transactional`)         │
+│   - Byznys invarianty: 15minutová mřížka, nekoliznost slotů     │
+│   - Stavový automat rezervací (PLANOVANA, DOKONCENA, ZRUSENA)    │
+│   - Validace ordinačních hodin a správa výluk lékařů            │
+│   - Vazba lékařských výkonů výhradně na realizované návštěvy   │
+└───────────────────────────────┬─────────────────────────────────┘
+                                │ závisí na
+                                ▼
+┌─────────────────────────────────────────────────────────────────┐
+│             Datová a infrastrukturní vrstva (Data / Persistence)│
+│   - Spring Data JPA Repositories (`@Repository`, JpaRepository) │
+│   - JPA / Hibernate Entity (8 doménových modelů)               │
+│   - Flyway verzované migrace schématu a syntetická data         │
+│   - PostgreSQL 16 relační databáze                             │
+└─────────────────────────────────────────────────────────────────┘
 ```
 
 ---
@@ -142,11 +146,11 @@ Aplikace striktně dodržuje jednosměrný tok závislostí:
 
 Aplikace pracuje s následujícími klíčovými entitami:
 
-1. **`Pacient`:** `id`, `jmeno`, `prijmeni`, `rok_narozeni`, `telefon`, `cislo_pojistence` (UNIQUE), `kod_pojistovny`, `vytvoreno`
+1. **`Pacient`:** `id`, `jmeno`, `prijmeni`, `rok_narozeni`, `telefon`, `cislo_pojistence` (UNIQUE index), `kod_pojistovny`, `vytvoreno`
 2. **`Lekar`:** `id`, `titul`, `jmeno`, `prijmeni`, `aktivni`
 3. **`OrdinacniHodina`:** `id`, `lekar_id`, `den_v_tydnu`, `cas_od`, `cas_do`, `pracoviste_adresa`, `lze_objednat`
 4. **`VylukaLekare`:** `id`, `lekar_id`, `datum_od`, `datum_do`, `duvod`
-5. **`Rezervace`:** `id`, `pacient_id`, `lekar_id`, `cas_od`, `cas_do`, `stav` (`planovana`, `dokoncena`, `zrusena`, `vyzaduje_preobjednani`), `poznamka`, `datum_zruseni`
+5. **`Rezervace`:** `id`, `pacient_id`, `lekar_id`, `cas_od`, `cas_do`, `stav` (`PLANOVANA`, `DOKONCENA`, `ZRUSENA`, `VYZADUJE_PREOBJEDNANI`), `poznamka`, `datum_zruseni`
 6. **`Navsteva`:** `id`, `rezervace_id` (volitelné pro neplánované), `pacient_id`, `lekar_id`, `zacatek_navstevy`, `konec_navstevy`, `zprava_lekare`
 7. **`Vykon`:** `id`, `kod_vykonu` (UNIQUE), `nazev`, `body`, `platnost_od`
 8. **`NavstevaVykon` (vazba M:N):** `id`, `navsteva_id`, `vykon_id`, `pocet`, `priznane_body`
@@ -155,45 +159,61 @@ Aplikace pracuje s následujícími klíčovými entitami:
 
 ## 🚀 Instalace a spuštění
 
-Celé prostředí lze zprovoznit pomocí Dockeru:
+Celé prostředí je plně kontejnerizováno a lze jej spustit jediným příkazem:
 
 ```bash
 # 1. Klonování repozitáře
 git clone https://github.com/MichalBleha/PPRO.git
 cd PPRO
 
-# 2. Spuštění kontejnerů (databáze PostgreSQL + backend FastAPI s migracemi)
-docker compose up -d --build
-
-# 3. Interaktivní Swagger dokumentace
-# Dostupná v prohlížeči na adrese: http://localhost:8000/docs
+# 2. Spuštění kontejnerů (PostgreSQL + Spring Boot backend + React frontend)
+docker compose up --build
 ```
+
+### Dostupné služby po spuštění:
+- **Webová aplikace pro recepci (Frontend):** [http://localhost:80](http://localhost:80)
+- **REST API a Swagger UI (Backend):** [http://localhost:8080/swagger-ui.html](http://localhost:8080/swagger-ui.html)
+- **OpenAPI JSON specifikace:** [http://localhost:8080/v3/api-docs](http://localhost:8080/v3/api-docs)
+- **PostgreSQL databáze:** Port `5432`, databáze `ordinace_db`, uživatel `ordinace_user`
 
 ---
 
 ## 🧪 Testování
 
-Spuštění sady automatizovaných testů ověřujících byznys pravidla:
+Spuštění automatizovaných testů ověřujících byznys logiku (nekoliznost termínů, validace ordinačních hodin a 15minutové mřížky, storno pravidla):
+
 ```bash
-# Spuštění testů v kontejneru nebo lokálně
-pytest
+cd backend
+mvn test
 ```
 
 Testované scénáře zahrnují zejména:
-- Pokus o překryv rezervací u stejného lékaře (očekáváno zamítnutí).
-- Rezervace mimo ordinační dobu lékaře (očekáváno zamítnutí).
-- Přiřazení výkonu k neproběhlé návštěvě (očekáváno zamítnutí).
-- Správný výpočet součtu bodů pro měsíční výkaz pojišťovny.
+- Pokus o překryv rezervací u stejného lékaře (vyvolání `KolizeTerminuException`).
+- Rezervace s časem mimo 15minutovou mřížku (vyvolání `BusinessRuleException`).
+- Rezervace v době evidované výluky lékaře (vyvolání `MimoOrdinacniDobuException`).
+- Storno rezervace (uvolnění slotu pro nový termín a zaznamenání storna pro statistiku).
+- Pokus o evidenci návštěvy do budoucna (vyvolání `BusinessRuleException`).
+- Správný výpočet součtu bodů z provedených výkonů (M:N asociace).
 
 ---
 
 ## 📝 Deník vývoje a změn (Changelog)
 
+- **2026-10-07:**
+  - **Architektonická změna stacku:** Kompletní refaktoring z prototypu na produkční architekturu **Java 21 Spring Boot + React + PostgreSQL + Flyway**.
+  - **Backend:**
+    - Vytvořen Maven projekt se Spring Boot 3.3.4, Spring Data JPA, Jakarta Validation a Springdoc Swagger UI.
+    - Implementováno 8 JPA doménových entit včetně asociační M:N tabulky `NavstevaVykon` a stavového automatu `StavRezervace`.
+    - Vytvořena migrace Flyway `V1__init_schema.sql` (schéma, indexy, cizí klíče) a `V2__seed_synthetic_data.sql` (fiktivní lékaři, ordinační hodiny, číselník výkonů VZP, pacienti).
+    - Implementována servisní vrstva vynucující klíčová byznys pravidla (15m mřížka, zákaz kolizí, validace výluk, automatické přeřazování termínů do fronty, výpočet bodů).
+    - Implementovány REST kontrolery a globální `@RestControllerAdvice` exception handler.
+    - Pokryto automatizovanými testy (JUnit 5, Mockito).
+  - **Frontend:**
+    - Vytvořeno React 18 SPA (Vite) s Nginx reverse proxy.
+    - Propracovaný CSS designový systém pro recepční (paní Věra): 15minutová interaktivní mřížka diáře, rychlé vyhledávání pacientů při telefonátu, kalkulace výkonů a měsíční výkaz pojišťovny.
+  - **DevOps:**
+    - Vytvořen multi-stage Dockerfile pro backend i frontend a orchestrace v `docker-compose.yml`.
 - **2026-09-30:**
   - Výběr a analýza **Zadání A: Rezervace v ordinaci** (MUDr. Jana Hrubá, Ordinace Na Vyhlídce).
-  - Vytvoření [AGENTS.md](file:///c:/Users/bleha/Desktop/PPRO/AGENTS.md) s pravidly vývoje, git politikou a ochranou proti neautorizovanému pushování.
-  - Zpracování kompletní technické dokumentace a architektonických rozhodnutí do [README.md](file:///c:/Users/bleha/Desktop/PPRO/README.md) jako jediného zdroje pravdy.
-  - Nastavení git pre-commit hooku pro kontrolu aktuálnosti dokumentace.
-  - Úspěšný push inicializačního stavu do GitHub repozitáře.
-  - **Rozhodnutí o technologickém stacku:** Zvolen stack **Python 3.12 / FastAPI / SQLAlchemy 2.0 / Alembic / PostgreSQL (Docker)**.
+  - Vytvoření [AGENTS.md](file:///c:/Users/bleha/Desktop/PPRO/AGENTS.md) s pravidly vývoje a git politikou.
 
